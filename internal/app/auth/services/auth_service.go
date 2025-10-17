@@ -3,18 +3,24 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/RuLap/meetly-api/meetly/internal/app/auth/dto"
 	mapper "github.com/RuLap/meetly-api/meetly/internal/app/auth/mapper/custom"
 	"github.com/RuLap/meetly-api/meetly/internal/app/auth/models"
 	"github.com/RuLap/meetly-api/meetly/internal/app/auth/repository"
+	"github.com/RuLap/meetly-api/meetly/internal/pkg/events"
 	"github.com/RuLap/meetly-api/meetly/internal/pkg/jwt_helper"
+	"github.com/RuLap/meetly-api/meetly/internal/pkg/rabbitmq"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
 type AuthService interface {
@@ -22,6 +28,9 @@ type AuthService interface {
 	Login(ctx context.Context, req dto.LoginRequest) (*dto.AuthResponse, error)
 	GoogleAuth(ctx context.Context, req dto.GoogleAuthRequest) (*dto.AuthResponse, error)
 	GenerateGoogleOAuthURL() (string, string, error)
+
+	SendConfirmationLink(ctx context.Context, req *dto.SendConfirmationEmailRequest) error
+	ConfirmEmail(ctx context.Context, token string, currentUserID string) error
 }
 
 type GoogleOAuthConfig struct {
@@ -34,6 +43,8 @@ type authService struct {
 	log          *slog.Logger
 	jwtHelper    *jwt_helper.JWTHelper
 	googleConfig *GoogleOAuthConfig
+	redis        *redis.Client
+	rabbitmq     *rabbitmq.Client
 	authRepo     repository.AuthRepository
 }
 
@@ -41,12 +52,16 @@ func NewAuthService(
 	log *slog.Logger,
 	jwtHelper *jwt_helper.JWTHelper,
 	googleConfig *GoogleOAuthConfig,
+	redis *redis.Client,
+	rabbitmq *rabbitmq.Client,
 	authRepo repository.AuthRepository,
 ) AuthService {
 	return &authService{
 		log:          log,
 		jwtHelper:    jwtHelper,
 		googleConfig: googleConfig,
+		redis:        redis,
+		rabbitmq:     rabbitmq,
 		authRepo:     authRepo,
 	}
 }
@@ -113,6 +128,93 @@ func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Aut
 		UserID:      user.ID.String(),
 		Email:       user.Email,
 	}, nil
+}
+
+func (s *authService) SendConfirmationLink(ctx context.Context, req *dto.SendConfirmationEmailRequest) error {
+	if req.UserID == "" || req.Email == "" {
+		return fmt.Errorf("userID и email обязательны")
+	}
+
+	token := uuid.New().String()
+
+	userKey := fmt.Sprintf("email_confirm:user:%s", req.UserID)
+	tokenKey := fmt.Sprintf("email_confirm:token:%s", token)
+
+	pipe := s.redis.TxPipeline()
+	pipe.Set(ctx, userKey, token, 24*time.Hour)
+	pipe.Set(ctx, tokenKey, req.UserID, 24*time.Hour)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		s.log.Error("failed to store tokens in redis", "error", err, "user_id", req.UserID)
+		return fmt.Errorf("не удалось сохранить токен")
+	}
+
+	confirmationURL := fmt.Sprintf("https://meetlyplus.ru/confirm?token=%s", token)
+
+	if s.rabbitmq != nil {
+		event := events.EmailEvent{
+			To:       req.Email,
+			Template: "email_confirmation",
+			Subject:  "Подтвердите ваш email",
+			Data: map[string]interface{}{
+				"confirmation_url": confirmationURL,
+				"user_email":       req.Email,
+			},
+		}
+
+		if err := s.rabbitmq.PublishEmailEvent(event); err != nil {
+			s.log.Error("failed to publish email event", "error", err)
+		}
+	}
+
+	s.log.Info("confirmation link sent", "email", req.Email, "user_id", req.UserID)
+	return nil
+}
+
+func (s *authService) generateConfirmationToken(userID string) string {
+	timestamp := time.Now().Format("20060102150405.000000000")
+
+	data := fmt.Sprintf("%s:%s", userID, timestamp)
+	hash := sha256.Sum256([]byte(data))
+
+	return hex.EncodeToString(hash[:12])
+}
+
+func (s *authService) ConfirmEmail(ctx context.Context, token string, currentUserID string) error {
+	if token == "" {
+		return fmt.Errorf("токен обязателен")
+	}
+
+	redisKey := fmt.Sprintf("email_confirm:token:%s", token)
+	tokenUserID, err := s.redis.Get(ctx, redisKey).Result()
+	if err != nil {
+		s.log.Warn("invalid or expired confirmation token", "token", token, "error", err)
+		return fmt.Errorf("неверная или устаревшая ссылка подтверждения")
+	}
+
+	if tokenUserID != currentUserID {
+		s.log.Warn("security alert: token user mismatch",
+			"token_user", tokenUserID,
+			"current_user", currentUserID,
+			"token", token,
+		)
+		return fmt.Errorf("токен не принадлежит текущему пользователю")
+	}
+
+	if err := s.authRepo.MakeEmailConfirmed(ctx, currentUserID); err != nil {
+		s.log.Error("failed to confirm email in database", "error", err, "user_id", currentUserID)
+		return fmt.Errorf("не удалось подтвердить email")
+	}
+
+	pipe := s.redis.TxPipeline()
+	pipe.Del(ctx, redisKey)
+	pipe.Del(ctx, fmt.Sprintf("email_confirm:user:%s", currentUserID))
+	if _, err := pipe.Exec(ctx); err != nil {
+		s.log.Warn("failed to delete used tokens", "token", token, "error", err)
+	}
+
+	s.log.Info("email confirmed successfully", "user_id", currentUserID)
+	return nil
 }
 
 func (s *authService) GoogleAuth(ctx context.Context, req dto.GoogleAuthRequest) (*dto.AuthResponse, error) {

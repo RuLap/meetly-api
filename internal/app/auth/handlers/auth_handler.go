@@ -95,6 +95,64 @@ func (h *AuthHandler) GoogleAuthURL(w http.ResponseWriter, r *http.Request) {
 	h.sendJSON(w, response, http.StatusOK)
 }
 
+func (h *AuthHandler) SendConfirmationLink(w http.ResponseWriter, r *http.Request) {
+	var req dto.ConfirmEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		boom.BadRequest(w, "неверный формат JSON")
+		return
+	}
+
+	if errors := validation.ValidateStruct(req); errors != nil {
+		boom.BadRequest(w, "Ошибки валидации", errors)
+		return
+	}
+
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok {
+		boom.Unathorized(w, "требуется аутентификация")
+		return
+	}
+
+	if err := h.authService.ConfirmEmail(r.Context(), req.Token, userID); err != nil {
+		boom.BadRequest(w, err.Error())
+		return
+	}
+
+	h.sendJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Email успешно подтвержден",
+	}, http.StatusOK)
+}
+
+func (h *AuthHandler) ConfirmEmail(w http.ResponseWriter, r *http.Request) {
+	var req dto.ConfirmEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		boom.BadRequest(w, "неверный формат JSON")
+		return
+	}
+
+	if errors := validation.ValidateStruct(req); errors != nil {
+		boom.BadRequest(w, "Ошибки валидации", errors)
+		return
+	}
+
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok {
+		boom.Unathorized(w, "требуется аутентификация")
+		return
+	}
+
+	if err := h.authService.ConfirmEmail(r.Context(), req.Token, userID); err != nil {
+		boom.BadRequest(w, err.Error())
+		return
+	}
+
+	h.sendJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Email успешно подтвержден",
+	}, http.StatusOK)
+}
+
 func (h *AuthHandler) sendJSON(w http.ResponseWriter, data interface{}, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)

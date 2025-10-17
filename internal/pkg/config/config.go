@@ -16,6 +16,7 @@ type Config struct {
 	JWT                JWT            `yaml:"jwt"`
 	GoogleOAuth        GoogleOAuth    `yaml:"google_oauth"`
 	SMTP               SMTP           `yaml:"smtp"`
+	Redis              RedisConfig    `yaml:"redis"`
 	RabbitMQ           RabbitMQConfig `yaml:"rabbitmq"`
 }
 
@@ -49,6 +50,12 @@ type SMTP struct {
 	Password    string `yaml:"password"`
 	FromName    string `yaml:"from_name"`
 	FromAddress string `yaml:"from_address"`
+}
+
+type RedisConfig struct {
+	Address  string `yaml:"address"`
+	Password string `yaml:"password"`
+	DB       string `yaml:"db"`
 }
 
 type RabbitMQConfig struct {

@@ -15,6 +15,11 @@ type GoogleAuthRequest struct {
 	State string `json:"state" json:"state"`
 }
 
+type SendConfirmationEmailRequest struct {
+	Email  string `json:"email" validate:"required,email"`
+	UserID string `json:"user_id" validate:"required,uuid"`
+}
+
 type ConfirmEmailRequest struct {
 	Token string `json:"token" validate:"required,uuid4"`
 }
