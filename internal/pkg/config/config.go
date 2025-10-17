@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/drone/envsubst"
 	"log"
 	"os"
 	"time"
@@ -9,40 +10,73 @@ import (
 )
 
 type Config struct {
-	Log struct {
-		Level      string            `yaml:"level"`
-		File       string            `yaml:"file"`
-		LokiURL    string            `yaml:"loki_url"`
-		LokiLabels map[string]string `yaml:"loki_labels"`
-	} `yaml:"log"`
-
-	HTTPServer struct {
-		Address     string        `yaml:"address"`
-		Timeout     time.Duration `yaml:"timeout"`
-		IdleTimeout time.Duration `yaml:"idle_timeout"`
-	} `yaml:"http_server"`
-
-	PostgresConnString string `yaml:"postgres_conn_string"`
-
-	JWT struct {
-		Secret string `yaml:"secret"`
-	} `yaml:"jwt"`
+	Env                string         `yaml:"env"`
+	PostgresConnString string         `yaml:"postgres_conn_string"`
+	HTTPServer         HTTPServer     `yaml:"http_server"`
+	JWT                JWT            `yaml:"jwt"`
+	GoogleOAuth        GoogleOAuth    `yaml:"google_oauth"`
+	SMTP               SMTP           `yaml:"smtp"`
+	RabbitMQ           RabbitMQConfig `yaml:"rabbitmq"`
 }
 
-func Load(path string) *Config {
-	data, err := os.ReadFile(path)
+type HTTPServer struct {
+	Address     string        `yaml:"address"`
+	Timeout     time.Duration `yaml:"timeout"`
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
+}
+
+type Log struct {
+	Level      string            `yaml:"level"`
+	File       string            `yaml:"file"`
+	LokiURL    string            `yaml:"loki_url"`
+	LokiLabels map[string]string `yaml:"loki_labels"`
+}
+
+type JWT struct {
+	Secret string `yaml:"secret"`
+}
+
+type GoogleOAuth struct {
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+	RedirectURL  string `yaml:"redirect_url"`
+}
+
+type SMTP struct {
+	Host        string `yaml:"host"`
+	Port        string `yaml:"port"`
+	User        string `yaml:"user"`
+	Password    string `yaml:"password"`
+	FromName    string `yaml:"from_name"`
+	FromAddress string `yaml:"from_address"`
+}
+
+type RabbitMQConfig struct {
+	URL       string `yaml:"url"`
+	QueueName string `yaml:"queue_name"`
+}
+
+func MustLoad() *Config {
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "config/config.yaml"
+	}
+
+	data, err := os.ReadFile(configPath)
 	if err != nil {
-		log.Fatalf("cannot read config file: %v", err)
+		log.Fatalf("cannot read config file: %s", err)
+	}
+
+	expandedConfig, err := envsubst.EvalEnv(string(data))
+	if err != nil {
+		log.Fatalf("cannot substitute env variables: %s", err)
 	}
 
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		log.Fatalf("cannot parse config: %v", err)
-	}
 
-	cfg.Log.LokiURL = os.ExpandEnv(cfg.Log.LokiURL)
-	cfg.PostgresConnString = os.ExpandEnv(cfg.PostgresConnString)
-	cfg.JWT.Secret = os.ExpandEnv(cfg.JWT.Secret)
+	if err := yaml.Unmarshal([]byte(expandedConfig), &cfg); err != nil {
+		log.Fatalf("cannot parse config: %s", err)
+	}
 
 	return &cfg
 }

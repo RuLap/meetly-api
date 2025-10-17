@@ -1,0 +1,115 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"github.com/RuLap/meetly-api/meetly/internal/app/auth/models"
+	"github.com/jackc/pgx"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var (
+	ErrUserAlreadyExists   = errors.New("пользователь с таким email существует")
+	InvalidEmailOrPassword = errors.New("неверный email или пароль")
+)
+
+type AuthRepository interface {
+	CreateUser(ctx context.Context, user *models.User) (*string, error)
+	MakeEmailConfirmed(ctx context.Context, userID string) error
+	GetByEmailProvider(ctx context.Context, email string, provider models.Provider) (*models.User, error)
+	Close()
+}
+
+type authRepository struct {
+	pool *pgxpool.Pool
+}
+
+func NewAuthRepository(pool *pgxpool.Pool) AuthRepository {
+	return &authRepository{pool}
+}
+
+func (r *authRepository) CreateUser(ctx context.Context, user *models.User) (*string, error) {
+	query := `
+		INSERT INTO users (email, provider, provider_id, password)
+		VALUES ($1, $2, $3, $4)
+	`
+
+	var userID string
+	err := r.pool.QueryRow(
+		ctx,
+		query,
+		user.Email,
+		user.Provider,
+		user.ProviderID,
+		user.Password,
+	).Scan(&userID)
+
+	if err != nil {
+		if isUniqueConstraintError(err) {
+			return nil, ErrUserAlreadyExists
+		}
+		return nil, fmt.Errorf("не удалось создать пользователя: %w", err)
+	}
+
+	return &userID, nil
+}
+
+func (r *authRepository) MakeEmailConfirmed(ctx context.Context, userID string) error {
+	query := `
+		UPDATE users
+		SET email_confirmed = TRUE
+		where id = $1
+	`
+
+	result, err := r.pool.Exec(ctx, query, userID)
+	if err != nil {
+		return fmt.Errorf("не удалось подтверить почту: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return InvalidEmailOrPassword
+	}
+
+	return nil
+}
+
+func (r *authRepository) GetByEmailProvider(ctx context.Context, email string, provider models.Provider) (*models.User, error) {
+	query := `
+		SELECT id, email, provider, provider_id
+		FROM users
+		WHERE email = $1 AND provider = $2
+	`
+
+	var user models.User
+	err := r.pool.QueryRow(
+		ctx,
+		query,
+		email,
+		provider,
+	).Scan(
+		&user.ID,
+		&user.Email,
+		&user.Provider,
+		&user.ProviderID,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("не удалось получить пользователя по email provider: %w", err)
+	}
+
+	return &user, nil
+}
+
+func (r *authRepository) Close() {
+	if r.pool != nil {
+		r.pool.Close()
+	}
+}
+
+func isUniqueConstraintError(err error) bool {
+	if pgErr, ok := err.(*pgx.PgError); ok {
+		return pgErr.Code == "23505"
+	}
+	return false
+}

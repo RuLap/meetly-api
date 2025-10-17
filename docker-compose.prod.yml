@@ -1,7 +1,17 @@
 version: "3.8"
 
 services:
-  meetly:
+  migrations:
+    build: .
+    command: goose -dir ./migrations postgres "$POSTGRES_CONN_STRING" up
+    environment:
+      - POSTGRES_CONN_STRING=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  meetly_api:
     build:
       context: .
       dockerfile: ./Dockerfile
@@ -35,6 +45,11 @@ services:
       - meetly_network_prod
     volumes:
       - meetly_pg_data_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   mail_service:
     build:
