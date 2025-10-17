@@ -1,0 +1,17 @@
+log:
+  level: "debug"
+  file: "./logs/app.log"
+  loki_url: "${LOKI_URL}"
+  loki_labels:
+    app: "meetly"
+    env: "local"
+
+http_server:
+  address: "0.0.0.0:8080"
+  timeout: 5s
+  idle_timeout: 60s
+
+postgres_conn_string: "${POSTGRES_CONN_STRING}"
+
+jwt:
+  secret: "${JWT_SECRET}"
