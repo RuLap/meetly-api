@@ -29,3 +29,11 @@ redis:
 rabbitmq:
   url: "${RABBITMQ_URL}"
   queue_name: "${CONFIRMATION_QUEUE}"
+
+smtp:
+  host: "${SMTP_HOST}"
+  port: "${SMTP_PORT}"
+  user: "${SMTP_USER}"
+  password: "${SMTP_PASSWORD}"
+  from_name: "${SMTP_FROM_NAME}"
+  from_address: "${SMTP_FROM_ADDRESS}"

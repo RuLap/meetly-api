@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine AS build
+FROM golang:1.25-alpine AS build
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ WORKDIR /app
 
 COPY --from=build /app/meetly-api .
 COPY --from=build /go/bin/goose /usr/local/bin/goose
-COPY internal/pkg/config/config.yaml ./config.yaml
+COPY internal/pkg/config/config.yaml ./config/config.yaml
 COPY migrations/ ./migrations/
 
 EXPOSE 8080

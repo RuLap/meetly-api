@@ -1,7 +1,5 @@
 -- +goose Up
 -- +goose StatementBegin
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 CREATE TABLE participants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -12,5 +10,5 @@ CREATE TABLE participants (
 
 -- +goose Down
 -- +goose StatementBegin
-DROP TABLE participants;
+DROP TABLE IF EXISTS participants;
 -- +goose StatementEnd

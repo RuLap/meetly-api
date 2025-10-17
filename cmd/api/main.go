@@ -64,7 +64,7 @@ func main() {
 		mailService = mail_services.NewMailService(
 			logger,
 			rabbitmqClient,
-			cfg,
+			&cfg.SMTP,
 		)
 
 		go func() {

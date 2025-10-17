@@ -1,7 +1,5 @@
 -- +goose Up
 -- +goose StatementBegin
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     first_name VARCHAR(50),
@@ -22,7 +20,7 @@ CREATE INDEX idx_users_created_at ON users(created_at);
 
 -- +goose Down
 -- +goose StatementBegin
-DROP INDEX idx_users_email_provider;
-DROP INDEX idx_users_created_at;
-DROP TABLE users;
+DROP INDEX IF EXISTS idx_users_email_provider;
+DROP INDEX IF EXISTS idx_users_created_at;
+DROP TABLE IF EXISTS users;
 -- +goose StatementEnd

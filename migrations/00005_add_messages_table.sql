@@ -1,7 +1,5 @@
 -- +goose Up
 -- +goose StatementBegin
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 CREATE TABLE messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -16,7 +14,7 @@ CREATE INDEX idx_messages_created_at ON messages(created_at);
 
 -- +goose Down
 -- +goose StatementBegin
-DROP INDEX idx_messages_event_id;
-DROP INDEX idx_messages_created_at
-DROP TABLE messages;
+DROP INDEX IF EXISTS idx_messages_event_id;
+DROP INDEX IF EXISTS idx_messages_created_at
+DROP TABLE IF EXISTS messages;
 -- +goose StatementEnd

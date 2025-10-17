@@ -3,10 +3,16 @@ version: "3.8"
 services:
   migrations:
     build: .
-    command: goose -dir ./migrations postgres "$POSTGRES_CONN_STRING" up
+    command: goose -dir ./migrations postgres "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable" up
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - meetly_network_dev
     restart: "no"
 
   meetly_api:
@@ -51,6 +57,7 @@ services:
       - meetly_network_dev
     volumes:
       - meetly_pg_data_dev:/var/lib/postgresql/data
+      - ./init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 5s
@@ -86,7 +93,7 @@ services:
     volumes:
       - redis_data_dev:/data
     healthcheck:
-      test: [ "CMD", "redis", "status" ]
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -111,29 +118,29 @@ services:
       retries: 10
 
   loki:
-    image: grafana/loki:2.10.0
+    image: grafana/loki:latest
     container_name: loki
     ports:
-      - "13100:13100"
-    command: -config.file=/etc/loki/local-config.yml
+      - "13100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
     volumes:
       - ./loki-data:/loki
 
   promtail:
-    image: grafana/promtail:2.10.0
+    image: grafana/promtail:latest
     container_name: promtail
     volumes:
       - /var/log:/var/log
-      - ./promtail-config.yaml:/etc/promtail/config.yml
+      - ./promtail-config.yml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
 
   grafana:
-    image: grafana/grafana:10.1.0
+    image: grafana/grafana:latest
     container_name: grafana
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
     ports:
-      - "13000:13000"
+      - "13000:3000"
     depends_on:
       - loki
 
