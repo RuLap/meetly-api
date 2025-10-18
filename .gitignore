@@ -28,3 +28,6 @@ go.work.sum
 
 # generated protobuf
 *.pb.go
+
+# generated loki data
+loki-data/

@@ -26,7 +26,9 @@ func main() {
 	cfg := config.MustLoad()
 
 	logger := logger.New(logger.Config{
-		Level: cfg.Env,
+		Level:   cfg.Env,
+		LokiURL: cfg.Log.LokiURL,
+		Labels:  cfg.Log.LokiLabels,
 	})
 
 	validation.Init()

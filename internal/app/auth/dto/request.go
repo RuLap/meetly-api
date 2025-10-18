@@ -23,3 +23,7 @@ type SendConfirmationEmailRequest struct {
 type ConfirmEmailRequest struct {
 	Token string `json:"token" validate:"required,uuid4"`
 }
+
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}

@@ -13,6 +13,7 @@ type Config struct {
 	Env                string         `yaml:"env"`
 	PostgresConnString string         `yaml:"postgres_conn_string"`
 	HTTPServer         HTTPServer     `yaml:"http_server"`
+	Log                Log            `yaml:"log"`
 	JWT                JWT            `yaml:"jwt"`
 	GoogleOAuth        GoogleOAuth    `yaml:"google_oauth"`
 	SMTP               SMTP           `yaml:"smtp"`

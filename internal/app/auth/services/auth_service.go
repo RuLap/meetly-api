@@ -28,6 +28,8 @@ type AuthService interface {
 	Login(ctx context.Context, req dto.LoginRequest) (*dto.AuthResponse, error)
 	GoogleAuth(ctx context.Context, req dto.GoogleAuthRequest) (*dto.AuthResponse, error)
 	GenerateGoogleOAuthURL() (string, string, error)
+	RefreshTokens(ctx context.Context, refreshToken string) (*dto.AuthResponse, error)
+	Logout(ctx context.Context, userID string) error
 
 	SendConfirmationLink(ctx context.Context, req *dto.SendConfirmationEmailRequest) error
 	ConfirmEmail(ctx context.Context, token string, currentUserID string) error
@@ -64,70 +66,6 @@ func NewAuthService(
 		rabbitmq:     rabbitmq,
 		authRepo:     authRepo,
 	}
-}
-
-func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (*dto.AuthResponse, error) {
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		s.log.Error("failed to hash password", "error", err)
-		return nil, fmt.Errorf("произошла ошибка")
-	}
-
-	hashedPasswordStr := string(hashedPassword)
-
-	user := mapper.RegisterRequestToUser(&req, hashedPasswordStr)
-
-	userID, err := s.authRepo.CreateUser(ctx, user)
-	if err != nil {
-		s.log.Error("failed to create user", "error", err, "email", user.Email)
-		return nil, err
-	}
-
-	token, err := s.jwtHelper.GenerateDefaultToken(*userID, req.Email)
-	if err != nil {
-		s.log.Error("failed to generate JWT token", "error", err)
-		return nil, fmt.Errorf("произошла ошибка")
-	}
-
-	s.log.Info("user registered successfully", "user_id", *userID, "email", req.Email)
-
-	return &dto.AuthResponse{
-		AccessToken: token,
-		UserID:      *userID,
-		Email:       req.Email,
-	}, nil
-}
-
-func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.AuthResponse, error) {
-	user, err := s.authRepo.GetByEmailProvider(ctx, req.Email, models.LocalProvider)
-	if err != nil {
-		s.log.Warn("user not found", "email", req.Email)
-		return nil, fmt.Errorf("неверный email или пароль")
-	}
-
-	if user.Password == nil {
-		s.log.Error("user entered empty password", "email", req.Email)
-		return nil, fmt.Errorf("неверный email или пароль")
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(*user.Password), []byte(req.Password)); err != nil {
-		s.log.Error("user entered invalid password", "email", req.Email)
-		return nil, fmt.Errorf("неверный email или пароль")
-	}
-
-	token, err := s.jwtHelper.GenerateDefaultToken(user.ID.String(), user.Email)
-	if err != nil {
-		s.log.Error("failed to generate JWT token", "error", err)
-		return nil, fmt.Errorf("произошла ошибка")
-	}
-
-	s.log.Info("user logged in successfully", "user_id", user.ID, "email", req.Email)
-
-	return &dto.AuthResponse{
-		AccessToken: token,
-		UserID:      user.ID.String(),
-		Email:       user.Email,
-	}, nil
 }
 
 func (s *authService) SendConfirmationLink(ctx context.Context, req *dto.SendConfirmationEmailRequest) error {
@@ -217,6 +155,86 @@ func (s *authService) ConfirmEmail(ctx context.Context, token string, currentUse
 	return nil
 }
 
+func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (*dto.AuthResponse, error) {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		s.log.Error("failed to hash password", "error", err)
+		return nil, fmt.Errorf("произошла ошибка")
+	}
+
+	hashedPasswordStr := string(hashedPassword)
+
+	user := mapper.RegisterRequestToUser(&req, hashedPasswordStr)
+
+	userID, err := s.authRepo.CreateUser(ctx, user)
+	if err != nil {
+		s.log.Error("failed to create user", "error", err, "email", user.Email)
+		return nil, err
+	}
+
+	tokenPair, err := s.jwtHelper.GenerateTokenPair(*userID, req.Email)
+	if err != nil {
+		s.log.Error("failed to generate JWT tokens", "error", err)
+		return nil, fmt.Errorf("произошла ошибка")
+	}
+
+	err = s.storeRefreshToken(ctx, *userID, tokenPair.RefreshToken)
+	if err != nil {
+		s.log.Error("failed to store refresh token", "error", err, "user_id", *userID)
+		return nil, fmt.Errorf("произошла ошибка")
+	}
+
+	s.log.Info("user registered successfully", "user_id", *userID, "email", req.Email)
+
+	return &dto.AuthResponse{
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
+		ExpiresIn:    tokenPair.ExpiresIn,
+		UserID:       *userID,
+		Email:        req.Email,
+	}, nil
+}
+
+func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.AuthResponse, error) {
+	user, err := s.authRepo.GetByEmailProvider(ctx, req.Email, models.LocalProvider)
+	if err != nil {
+		s.log.Warn("user not found", "email", req.Email)
+		return nil, fmt.Errorf("неверный email или пароль")
+	}
+
+	if user.Password == nil {
+		s.log.Error("user entered empty password", "email", req.Email)
+		return nil, fmt.Errorf("неверный email или пароль")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(*user.Password), []byte(req.Password)); err != nil {
+		s.log.Error("user entered invalid password", "email", req.Email)
+		return nil, fmt.Errorf("неверный email или пароль")
+	}
+
+	tokenPair, err := s.jwtHelper.GenerateTokenPair(user.ID.String(), user.Email)
+	if err != nil {
+		s.log.Error("failed to generate JWT tokens", "error", err)
+		return nil, fmt.Errorf("произошла ошибка")
+	}
+
+	err = s.storeRefreshToken(ctx, user.ID.String(), tokenPair.RefreshToken)
+	if err != nil {
+		s.log.Error("failed to store refresh token", "error", err, "user_id", user.ID)
+		return nil, fmt.Errorf("произошла ошибка")
+	}
+
+	s.log.Info("user logged in successfully", "user_id", user.ID, "email", req.Email)
+
+	return &dto.AuthResponse{
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
+		ExpiresIn:    tokenPair.ExpiresIn,
+		UserID:       user.ID.String(),
+		Email:        user.Email,
+	}, nil
+}
+
 func (s *authService) GoogleAuth(ctx context.Context, req dto.GoogleAuthRequest) (*dto.AuthResponse, error) {
 	token, err := s.exchangeCodeForToken(req.Code)
 	if err != nil {
@@ -255,19 +273,98 @@ func (s *authService) GoogleAuth(ctx context.Context, req dto.GoogleAuthRequest)
 		return nil, fmt.Errorf("произошла ошибка")
 	}
 
-	jwtToken, err := s.jwtHelper.GenerateDefaultToken(user.ID.String(), user.Email)
+	tokenPair, err := s.jwtHelper.GenerateTokenPair(user.ID.String(), user.Email)
 	if err != nil {
-		s.log.Error("failed to generate JWT token", "error", err)
+		s.log.Error("failed to generate JWT tokens", "error", err)
+		return nil, fmt.Errorf("произошла ошибка")
+	}
+
+	err = s.storeRefreshToken(ctx, user.ID.String(), tokenPair.RefreshToken)
+	if err != nil {
+		s.log.Error("failed to store refresh token", "error", err, "user_id", user.ID)
 		return nil, fmt.Errorf("произошла ошибка")
 	}
 
 	s.log.Info("google auth successful", "user_id", user.ID, "email", user.Email)
 
 	return &dto.AuthResponse{
-		AccessToken: jwtToken,
-		UserID:      user.ID.String(),
-		Email:       user.Email,
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
+		ExpiresIn:    tokenPair.ExpiresIn,
+		UserID:       user.ID.String(),
+		Email:        user.Email,
 	}, nil
+}
+
+func (s *authService) RefreshTokens(ctx context.Context, refreshToken string) (*dto.AuthResponse, error) {
+	if refreshToken == "" {
+		return nil, fmt.Errorf("refresh token обязателен")
+	}
+
+	claims, err := s.jwtHelper.ParseJWT(refreshToken)
+	if err != nil {
+		s.log.Warn("invalid refresh token format", "error", err)
+		return nil, fmt.Errorf("неверный refresh token")
+	}
+
+	if claims.Type != "refresh" {
+		s.log.Warn("attempt to use non-refresh token for refresh", "token_type", claims.Type)
+		return nil, fmt.Errorf("неверный тип токена")
+	}
+
+	storedToken, err := s.redis.Get(ctx, s.getRefreshTokenKey(claims.UserID)).Result()
+	if err != nil {
+		s.log.Warn("refresh token not found in storage", "user_id", claims.UserID, "error", err)
+		return nil, fmt.Errorf("refresh token не найден или истек")
+	}
+
+	if storedToken != refreshToken {
+		s.log.Warn("refresh token mismatch", "user_id", claims.UserID)
+		return nil, fmt.Errorf("неверный refresh token")
+	}
+
+	newTokenPair, err := s.jwtHelper.GenerateTokenPair(claims.UserID, claims.Email)
+	if err != nil {
+		s.log.Error("failed to generate new token pair", "error", err, "user_id", claims.UserID)
+		return nil, fmt.Errorf("произошла ошибка")
+	}
+
+	err = s.storeRefreshToken(ctx, claims.UserID, newTokenPair.RefreshToken)
+	if err != nil {
+		s.log.Error("failed to store new refresh token", "error", err, "user_id", claims.UserID)
+		return nil, fmt.Errorf("произошла ошибка")
+	}
+
+	s.log.Info("tokens refreshed successfully", "user_id", claims.UserID)
+
+	return &dto.AuthResponse{
+		AccessToken:  newTokenPair.AccessToken,
+		RefreshToken: newTokenPair.RefreshToken,
+		ExpiresIn:    newTokenPair.ExpiresIn,
+		UserID:       claims.UserID,
+		Email:        claims.Email,
+	}, nil
+}
+
+func (s *authService) storeRefreshToken(ctx context.Context, userID, refreshToken string) error {
+	key := s.getRefreshTokenKey(userID)
+	return s.redis.Set(ctx, key, refreshToken, 7*24*time.Hour).Err()
+}
+
+func (s *authService) getRefreshTokenKey(userID string) string {
+	return fmt.Sprintf("refresh_token:%s", userID)
+}
+
+func (s *authService) Logout(ctx context.Context, userID string) error {
+	key := s.getRefreshTokenKey(userID)
+	err := s.redis.Del(ctx, key).Err()
+	if err != nil {
+		s.log.Error("failed to delete refresh token", "error", err, "user_id", userID)
+		return fmt.Errorf("не удалось выполнить выход")
+	}
+
+	s.log.Info("user logged out successfully", "user_id", userID)
+	return nil
 }
 
 func (s *authService) GenerateGoogleOAuthURL() (string, string, error) {

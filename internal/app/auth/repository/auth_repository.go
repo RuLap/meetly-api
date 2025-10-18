@@ -33,6 +33,7 @@ func (r *authRepository) CreateUser(ctx context.Context, user *models.User) (*st
 	query := `
 		INSERT INTO users (email, provider, provider_id, password)
 		VALUES ($1, $2, $3, $4)
+		RETURNING id
 	`
 
 	var userID string

@@ -22,7 +22,7 @@ services:
     container_name: meetly_dev
     environment:
       - JWT_SECRET=${JWT_SECRET}
-      - POSTGRES_CONN_STRING=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@auth_postgres:5432/${POSTGRES_DB}?sslmode=disable
+      - POSTGRES_CONN_STRING=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       - RABBITMQ_URL=amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/
       - CONFIRMATION_QUEUE=${CONFIRMATION_QUEUE}
       - SMTP_HOST=${SMTP_HOST}
@@ -124,15 +124,23 @@ services:
       - "13100:3100"
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml
       - ./loki-data:/loki
+    networks:
+      - meetly_network_dev
 
   promtail:
     image: grafana/promtail:latest
     container_name: promtail
     volumes:
-      - /var/log:/var/log
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./promtail-config.yml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - meetly_network_dev
 
   grafana:
     image: grafana/grafana:latest
@@ -143,12 +151,15 @@ services:
       - "13000:3000"
     depends_on:
       - loki
+    networks:
+      - meetly_network_dev
 
 volumes:
   meetly_pg_data_dev:
   minio_data_dev:
   redis_data_dev:
   rabbitmq_data_dev:
+
 
 networks:
   meetly_network_dev:

@@ -18,7 +18,6 @@ func AuthMiddleware(jwtHelper *jwt_helper.JWTHelper) func(http.Handler) http.Han
 				return
 			}
 
-			// Убираем "Bearer " префикс
 			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 			if tokenString == authHeader {
 				boom.Unathorized(w, "Invalid authorization format")
@@ -31,7 +30,6 @@ func AuthMiddleware(jwtHelper *jwt_helper.JWTHelper) func(http.Handler) http.Han
 				return
 			}
 
-			// Добавляем claims в контекст
 			ctx := context.WithValue(r.Context(), "user_id", claims.UserID)
 			ctx = context.WithValue(ctx, "user_email", claims.Email)
 
