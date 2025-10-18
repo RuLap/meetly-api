@@ -3,19 +3,23 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"github.com/RuLap/meetly-api/meetly/internal/app/auth/handlers"
-	"github.com/RuLap/meetly-api/meetly/internal/app/auth/repository"
+	auth_handlers "github.com/RuLap/meetly-api/meetly/internal/app/auth/handlers"
+	auth_repos "github.com/RuLap/meetly-api/meetly/internal/app/auth/repository"
 	auth_services "github.com/RuLap/meetly-api/meetly/internal/app/auth/services"
+	category_handlers "github.com/RuLap/meetly-api/meetly/internal/app/category/handlers"
+	category_repos "github.com/RuLap/meetly-api/meetly/internal/app/category/repository"
+	category_services "github.com/RuLap/meetly-api/meetly/internal/app/category/services"
 	mail_services "github.com/RuLap/meetly-api/meetly/internal/app/mail/services"
 	"github.com/RuLap/meetly-api/meetly/internal/pkg/config"
 	"github.com/RuLap/meetly-api/meetly/internal/pkg/jwt_helper"
 	"github.com/RuLap/meetly-api/meetly/internal/pkg/logger"
+	"github.com/RuLap/meetly-api/meetly/internal/pkg/middleware"
 	"github.com/RuLap/meetly-api/meetly/internal/pkg/rabbitmq"
 	postgres "github.com/RuLap/meetly-api/meetly/internal/pkg/storage"
 	validation "github.com/RuLap/meetly-api/meetly/internal/pkg/validator"
 	"github.com/darahayes/go-boom"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chi_middleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/redis/go-redis/v9"
 	"log/slog"
 	"net/http"
@@ -51,7 +55,8 @@ func main() {
 		return
 	}
 
-	authRepo := repository.NewAuthRepository(storage.Database())
+	authRepo := auth_repos.NewAuthRepository(storage.Database())
+	categoryRepo := category_repos.NewCategoryRepository(storage.Database())
 	logger.Info("Init repos successfully")
 
 	googleConfig := &auth_services.GoogleOAuthConfig{
@@ -61,6 +66,7 @@ func main() {
 	}
 
 	authService := auth_services.NewAuthService(logger, jwtHelper, googleConfig, redisClient, rabbitmqClient, authRepo)
+	categoryService := category_services.NewCategoryService(logger, categoryRepo)
 	var mailService *mail_services.MailService
 	if rabbitmqClient != nil {
 		mailService = mail_services.NewMailService(
@@ -80,16 +86,17 @@ func main() {
 	}
 	logger.Info("Init services successfully")
 
-	authHandler := handlers.NewAuthHandler(authService)
+	authHandler := auth_handlers.NewAuthHandler(authService)
+	categoryHandler := category_handlers.NewCategoryHandler(categoryService)
 	logger.Info("Init handlers successfully")
 
 	router := chi.NewRouter()
 
-	router.Use(middleware.RequestID)
-	router.Use(middleware.RealIP)
-	router.Use(middleware.Logger)
-	router.Use(middleware.Recoverer)
-	router.Use(middleware.Timeout(60 * time.Second))
+	router.Use(chi_middleware.RequestID)
+	router.Use(chi_middleware.RealIP)
+	router.Use(chi_middleware.Logger)
+	router.Use(chi_middleware.Recoverer)
+	router.Use(chi_middleware.Timeout(60 * time.Second))
 
 	router.Route("/v1", func(r chi.Router) {
 		r.Route("/auth", func(r chi.Router) {
@@ -97,13 +104,20 @@ func main() {
 			r.Post("/login", authHandler.Login)
 			r.Post("/google", authHandler.GoogleAuth)
 			r.Get("/google/url", authHandler.GoogleAuthURL)
+			r.Post("/refresh", authHandler.RefreshTokens)
 
-			r.Post("/send-confirmation", authHandler.SendConfirmationLink)
-			r.Post("/confirm", authHandler.ConfirmEmail)
+			r.Route("/email", func(r chi.Router) {
+				r.Use(middleware.AuthMiddleware(jwtHelper))
+
+				r.Post("/send-confirmation", authHandler.SendConfirmationLink)
+				r.Post("/confirm", authHandler.ConfirmEmail)
+			})
+
+			r.With(middleware.AuthMiddleware(jwtHelper)).Post("/logout", authHandler.Logout)
 		})
-
-		r.Route("/email", func(r chi.Router) {
-
+		r.Route("/categories", func(r chi.Router) {
+			r.Get("/{id}", categoryHandler.GetCategoryByID)
+			r.Get("", categoryHandler.GetAllCategories)
 		})
 	})
 

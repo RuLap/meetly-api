@@ -153,6 +153,47 @@ func (h *AuthHandler) ConfirmEmail(w http.ResponseWriter, r *http.Request) {
 	}, http.StatusOK)
 }
 
+func (h *AuthHandler) RefreshTokens(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		boom.BadRequest(w, "Неверный формат запроса")
+		return
+	}
+
+	if req.RefreshToken == "" {
+		boom.BadRequest(w, "Refresh token обязателен")
+		return
+	}
+
+	tokens, err := h.authService.RefreshTokens(r.Context(), req.RefreshToken)
+	if err != nil {
+		boom.Unathorized(w, "Не удалось обновить токены")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tokens)
+}
+
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok {
+		boom.Unathorized(w, "Пользователь не авторизован")
+		return
+	}
+
+	err := h.authService.Logout(r.Context(), userID)
+	if err != nil {
+		boom.Internal(w, "Не удалось выполнить выход")
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (h *AuthHandler) sendJSON(w http.ResponseWriter, data interface{}, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
