@@ -10,6 +10,9 @@ import (
 	category_repos "github.com/RuLap/meetly-api/meetly/internal/app/category/repository"
 	category_services "github.com/RuLap/meetly-api/meetly/internal/app/category/services"
 	mail_services "github.com/RuLap/meetly-api/meetly/internal/app/mail/services"
+	user_handlers "github.com/RuLap/meetly-api/meetly/internal/app/user/handlers"
+	user_repos "github.com/RuLap/meetly-api/meetly/internal/app/user/repository"
+	user_services "github.com/RuLap/meetly-api/meetly/internal/app/user/services"
 	"github.com/RuLap/meetly-api/meetly/internal/pkg/config"
 	"github.com/RuLap/meetly-api/meetly/internal/pkg/jwt_helper"
 	"github.com/RuLap/meetly-api/meetly/internal/pkg/logger"
@@ -57,6 +60,7 @@ func main() {
 
 	authRepo := auth_repos.NewAuthRepository(storage.Database())
 	categoryRepo := category_repos.NewCategoryRepository(storage.Database())
+	userRepo := user_repos.NewUserRepository(storage.Database())
 	logger.Info("Init repos successfully")
 
 	googleConfig := &auth_services.GoogleOAuthConfig{
@@ -67,6 +71,7 @@ func main() {
 
 	authService := auth_services.NewAuthService(logger, jwtHelper, googleConfig, redisClient, rabbitmqClient, authRepo)
 	categoryService := category_services.NewCategoryService(logger, categoryRepo)
+	userService := user_services.NewUserService(logger, userRepo)
 	var mailService *mail_services.MailService
 	if rabbitmqClient != nil {
 		mailService = mail_services.NewMailService(
@@ -88,6 +93,7 @@ func main() {
 
 	authHandler := auth_handlers.NewAuthHandler(authService)
 	categoryHandler := category_handlers.NewCategoryHandler(categoryService)
+	userHandler := user_handlers.NewUserHandler(userService)
 	logger.Info("Init handlers successfully")
 
 	router := chi.NewRouter()
@@ -116,8 +122,17 @@ func main() {
 			r.With(middleware.AuthMiddleware(jwtHelper)).Post("/logout", authHandler.Logout)
 		})
 		r.Route("/categories", func(r chi.Router) {
+			r.Use(middleware.AuthMiddleware(jwtHelper))
+
 			r.Get("/{id}", categoryHandler.GetCategoryByID)
 			r.Get("", categoryHandler.GetAllCategories)
+		})
+
+		r.Route("/users", func(r chi.Router) {
+			r.Use(middleware.AuthMiddleware(jwtHelper))
+
+			r.Get("/{id}", userHandler.GetUserByID)
+			r.Put("/{id}", userHandler.UpdateUser)
 		})
 	})
 

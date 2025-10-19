@@ -5,6 +5,7 @@ CREATE TABLE users (
     first_name VARCHAR(50),
     last_name VARCHAR(50),
     birth_date DATE,
+    gender VARCHAR(7),
     email VARCHAR(100) UNIQUE NOT NULL,
     provider VARCHAR(50) DEFAULT 'local',
     provider_id VARCHAR(255),
