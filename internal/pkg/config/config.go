@@ -56,7 +56,7 @@ type SMTP struct {
 type RedisConfig struct {
 	Address  string `yaml:"address"`
 	Password string `yaml:"password"`
-	DB       string `yaml:"db"`
+	DB       int    `yaml:"db"`
 }
 
 type RabbitMQConfig struct {

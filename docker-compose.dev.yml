@@ -23,6 +23,9 @@ services:
     environment:
       - JWT_SECRET=${JWT_SECRET}
       - POSTGRES_CONN_STRING=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      - REDIS_ADDRESS=${REDIS_ADDRESS}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=${REDIS_DB}
       - RABBITMQ_URL=amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/
       - CONFIRMATION_QUEUE=${CONFIRMATION_QUEUE}
       - SMTP_HOST=${SMTP_HOST}
@@ -31,6 +34,7 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - SMTP_FROM_NAME=${SMTP_FROM_NAME}
       - SMTP_FROM_ADDRESS=${SMTP_FROM_ADDRESS}
+      - LOKI_URL=${LOKI_URL}
     ports:
       - "18080:8080"
     depends_on:
@@ -118,39 +122,43 @@ services:
       retries: 10
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:2.9.0
     container_name: loki
     ports:
       - "13100:3100"
-    command: -config.file=/etc/loki/local-config.yaml
     volumes:
-      - ./loki-config.yml:/etc/loki/local-config.yaml
+      - ./loki:/etc/loki
       - ./loki-data:/loki
+    command: -config.file=/etc/loki/config.yml
+    user: "10001:10001"
     networks:
       - meetly_network_dev
 
   promtail:
-    image: grafana/promtail:latest
+    image: grafana/promtail:2.9.0
     container_name: promtail
     volumes:
+      - /var/log:/var/log:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./promtail/config.yml:/etc/promtail/config.yml
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./promtail-config.yml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
-    depends_on:
-      - loki
     networks:
       - meetly_network_dev
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
-    ports:
-      - "13000:3000"
     depends_on:
       - loki
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: grafana
+    ports:
+      - "13000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+    depends_on:
+      - loki
+    volumes:
+      - ./grafana-data:/var/lib/grafana
     networks:
       - meetly_network_dev
 
@@ -159,7 +167,6 @@ volumes:
   minio_data_dev:
   redis_data_dev:
   rabbitmq_data_dev:
-
 
 networks:
   meetly_network_dev:

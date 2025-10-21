@@ -31,3 +31,6 @@ go.work.sum
 
 # generated loki data
 loki-data/
+
+#generated grafana data
+grafana-data/

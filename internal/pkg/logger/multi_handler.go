@@ -27,6 +27,7 @@ func (h *MultiHandler) Handle(ctx context.Context, r slog.Record) error {
 	for _, handler := range h.handlers {
 		if handler.Enabled(ctx, r.Level) {
 			if err := handler.Handle(ctx, r); err != nil && firstErr == nil {
+				firstErr = err
 			}
 		}
 	}

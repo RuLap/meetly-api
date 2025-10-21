@@ -24,11 +24,10 @@ func NewLokiHandler(url string, labels map[string]string) *LokiHandler {
 		url:    url + "/loki/api/v1/push",
 		labels: labels,
 		client: &http.Client{Timeout: 5 * time.Second},
-		level:  slog.LevelInfo, // default level
+		level:  slog.LevelInfo,
 	}
 }
 
-// Правильная сигнатура для Go 1.21+
 func (h *LokiHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return level >= h.level
 }
@@ -37,7 +36,6 @@ func (h *LokiHandler) Handle(ctx context.Context, r slog.Record) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Формируем запись для Loki
 	entry := map[string]interface{}{
 		"streams": []map[string]interface{}{
 			{
@@ -83,7 +81,7 @@ func (h *LokiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	}
 
 	for _, attr := range attrs {
-		newLabels[attr.Key] = attr.Value.String()
+		newLabels[attr.Key] = fmt.Sprint(attr.Value.Any())
 	}
 
 	return &LokiHandler{
@@ -104,7 +102,7 @@ func (h *LokiHandler) formatRecord(r slog.Record) string {
 		"message": r.Message,
 		"time":    r.Time.Format(time.RFC3339),
 	}
-	
+
 	r.Attrs(func(attr slog.Attr) bool {
 		logEntry[attr.Key] = attr.Value.Any()
 		return true
