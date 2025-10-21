@@ -105,12 +105,6 @@ func main() {
 
 			r.With(middleware.AuthMiddleware(jwtHelper)).Post("/logout", authModule.Handler.Logout)
 		})
-		r.Route("/categories", func(r chi.Router) {
-			r.Use(middleware.AuthMiddleware(jwtHelper))
-
-			r.Get("/{id}", eventModule.Handler.GetCategoryByID)
-			r.Get("/", eventModule.Handler.GetAllCategories)
-		})
 
 		r.Route("/users", func(r chi.Router) {
 			r.Use(middleware.AuthMiddleware(jwtHelper))
